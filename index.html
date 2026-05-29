@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>File Integrity Checker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  /* ── Reset & Base ─────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+ 
+  :root {
+    --bg:        #0a0c10;
+    --surface:   #111318;
+    --panel:     #161a22;
+    --border:    #1e2430;
+    --border-hi: #2a3345;
+    --accent:    #00e5ff;
+    --accent2:   #7c3aed;
+    --safe:      #00e096;
+    --warn:      #ff4b4b;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --mono:      'JetBrains Mono', monospace;
+    --sans:      'Syne', sans-serif;
+  }
+ 
+  html { scroll-behavior: smooth; }
+ 
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+ 
+  /* ── Background grid ──────────────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 40px 40px;
+    opacity: 0.35;
+    pointer-events: none;
+    z-index: 0;
+  }
+ 
+  /* ── Glow blobs ───────────────────────────────────────────── */
+  .blob {
+    position: fixed;
+    border-radius: 50%;
+    filter: blur(120px);
+    opacity: 0.08;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .blob-1 { width: 600px; height: 600px; background: var(--accent2); top: -200px; left: -200px; }
+  .blob-2 { width: 500px; height: 500px; background: var(--accent);  bottom: -200px; right: -100px; }
+ 
+  /* ── Layout ───────────────────────────────────────────────── */
+  .wrapper {
+    position: relative;
+    z-index: 1;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 60px 24px 80px;
+  }
+ 
+  /* ── Header ───────────────────────────────────────────────── */
+  header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    margin-bottom: 56px;
+    animation: fadeUp 0.7s ease both;
+  }
+ 
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0,229,255,0.08);
+    border: 1px solid rgba(0,229,255,0.2);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 6px 16px;
+    border-radius: 100px;
+    margin-bottom: 24px;
+  }
+  .badge::before { content: '⬡'; font-size: 14px; }
+ 
+  h1 {
+    font-size: clamp(32px, 6vw, 56px);
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1.1;
+    background: linear-gradient(135deg, #fff 30%, var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 16px;
+  }
+ 
+  .subtitle {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+  }
+ 
+  /* ── Tab bar ──────────────────────────────────────────────── */
+  .tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 5px;
+    margin-bottom: 32px;
+    animation: fadeUp 0.7s 0.1s ease both;
+  }
+ 
+  .tab {
+    flex: 1;
+    padding: 11px 16px;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .tab:hover { color: var(--text); background: var(--border); }
+  .tab.active {
+    background: linear-gradient(135deg, var(--accent2), #4f46e5);
+    color: #fff;
+    box-shadow: 0 4px 20px rgba(124,58,237,0.4);
+  }
+  .tab .icon { font-size: 16px; }
+ 
+  /* ── Card ─────────────────────────────────────────────────── */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 36px;
+    animation: fadeUp 0.7s 0.2s ease both;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0.4;
+  }
+ 
+  .panel { display: none; }
+  .panel.active { display: block; }
+ 
+  /* ── Drop zone ────────────────────────────────────────────── */
+  .drop-zone {
+    border: 2px dashed var(--border-hi);
+    border-radius: 14px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.25s;
+    position: relative;
+    background: var(--surface);
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(0,229,255,0.04);
+    box-shadow: 0 0 30px rgba(0,229,255,0.06);
+  }
+  .drop-zone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+  .drop-icon {
+    font-size: 40px;
+    margin-bottom: 12px;
+    display: block;
+    filter: grayscale(0.5);
+    transition: transform 0.3s;
+  }
+  .drop-zone:hover .drop-icon { transform: scale(1.1); }
+  .drop-label {
+    font-size: 15px;
+    color: var(--muted);
+  }
+  .drop-label span {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+  }
+  .drop-hint {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 8px;
+    opacity: 0.6;
+  }
+ 
+  /* ── File info strip ──────────────────────────────────────── */
+  .file-info {
+    display: none;
+    align-items: center;
+    gap: 14px;
+    background: var(--surface);
+    border: 1px solid var(--border-hi);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-top: 16px;
+  }
+  .file-info.visible { display: flex; }
+  .file-icon-wrap {
+    width: 40px; height: 40px;
+    background: rgba(0,229,255,0.1);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; flex-shrink: 0;
+  }
+  .file-meta { flex: 1; min-width: 0; }
+  .file-name {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .file-size {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+  .file-remove {
+    background: none; border: none;
+    color: var(--muted); cursor: pointer;
+    font-size: 18px; padding: 4px;
+    border-radius: 6px; transition: 0.2s;
+    flex-shrink: 0;
+  }
+  .file-remove:hover { color: var(--warn); background: rgba(255,75,75,0.1); }
+ 
+  /* ── Action button ────────────────────────────────────────── */
+  .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    margin-top: 20px;
+    padding: 15px 24px;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(135deg, var(--accent2), #4f46e5);
+    color: #fff;
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s;
+    box-shadow: 0 4px 24px rgba(124,58,237,0.3);
+    position: relative;
+    overflow: hidden;
+  }
+  .btn::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1), transparent);
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 8px 32px rgba(124,58,237,0.45); }
+  .btn:hover::after { opacity: 1; }
+  .btn:active { transform: translateY(0); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+ 
+  /* ── Result box ───────────────────────────────────────────── */
+  .result {
+    display: none;
+    margin-top: 24px;
+    border-radius: 14px;
+    overflow: hidden;
+    animation: fadeUp 0.4s ease both;
+  }
+  .result.visible { display: block; }
+ 
+  .result-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 18px;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .result.safe .result-header   { background: rgba(0,224,150,0.12); color: var(--safe); border-bottom: 1px solid rgba(0,224,150,0.2); }
+  .result.warn .result-header   { background: rgba(255,75,75,0.12);  color: var(--warn); border-bottom: 1px solid rgba(255,75,75,0.2); }
+  .result.info .result-header   { background: rgba(0,229,255,0.10);  color: var(--accent); border-bottom: 1px solid rgba(0,229,255,0.2); }
+ 
+  .result-body {
+    padding: 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 14px 14px;
+  }
+ 
+  .hash-display {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    word-break: break-all;
+    line-height: 1.8;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    position: relative;
+  }
+  .hash-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 6px;
+  }
+ 
+  .copy-btn {
+    position: absolute;
+    top: 10px; right: 10px;
+    background: rgba(0,229,255,0.1);
+    border: 1px solid rgba(0,229,255,0.2);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+  .copy-btn:hover { background: rgba(0,229,255,0.2); }
+ 
+  .compare-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 600px) { .compare-row { grid-template-columns: 1fr; } }
+ 
+  .compare-block { display: flex; flex-direction: column; gap: 6px; }
+ 
+  /* ── Verify paste zone ────────────────────────────────────── */
+  .paste-label {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 8px;
+    margin-top: 20px;
+    font-family: var(--mono);
+    letter-spacing: 0.5px;
+  }
+  .paste-input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border-hi);
+    border-radius: 10px;
+    padding: 12px 16px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    resize: vertical;
+    min-height: 64px;
+    transition: border-color 0.2s;
+    outline: none;
+  }
+  .paste-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,229,255,0.1); }
+  .paste-input::placeholder { color: var(--muted); opacity: 0.6; }
+ 
+  /* ── Version timeline ─────────────────────────────────────── */
+  .timeline {
+    margin-top: 40px;
+    animation: fadeUp 0.7s 0.3s ease both;
+  }
+  .timeline-title {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .timeline-title::before, .timeline-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+  .versions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .version-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    transition: border-color 0.2s, transform 0.2s;
+    cursor: default;
+  }
+  .version-card:hover { border-color: var(--border-hi); transform: translateY(-2px); }
+  .version-card.done { border-color: rgba(0,224,150,0.3); }
+  .version-card.active-v { border-color: rgba(124,58,237,0.5); background: rgba(124,58,237,0.05); }
+  .v-number {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1px;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .v-name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+  .v-desc { font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .v-tag {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 2px 8px;
+    border-radius: 100px;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+  .v-tag.done   { background: rgba(0,224,150,0.15); color: var(--safe); }
+  .v-tag.current { background: rgba(124,58,237,0.2); color: #a78bfa; }
+  .v-tag.next   { background: rgba(255,255,255,0.05); color: var(--muted); }
+ 
+  /* ── Loader spinner ───────────────────────────────────────── */
+  .spinner {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+ 
+  /* ── Animations ───────────────────────────────────────────── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0);     }
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  @keyframes pulse-ring {
+    0%   { box-shadow: 0 0 0 0   rgba(0,224,150,0.4); }
+    100% { box-shadow: 0 0 0 12px rgba(0,224,150,0); }
+  }
+  .pulse { animation: pulse-ring 1.2s ease-out infinite; }
+</style>
+</head>
+<body>
+ 
+<div class="blob blob-1"></div>
+<div class="blob blob-2"></div>
+ 
+<div class="wrapper">
+ 
+  <!-- Header -->
+  <header>
+    <div class="badge">SHA-256 · File Security</div>
+    <h1>File Integrity<br>Checker</h1>
+    <p class="subtitle">// detect tampering · verify checksums · trust nothing</p>
+  </header>
+ 
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" onclick="switchTab('generate', this)">
+      <span class="icon">⬡</span> Generate Hash
+    </button>
+    <button class="tab" onclick="switchTab('verify', this)">
+      <span class="icon">✦</span> Verify File
+    </button>
+  </div>
+ 
+  <!-- Card -->
+  <div class="card">
+ 
+    <!-- ── Panel: Generate ──────────────────────────────────── -->
+    <div class="panel active" id="panel-generate">
+ 
+      <div class="drop-zone" id="drop-gen"
+           ondragover="onDrag(event,true,'drop-gen')"
+           ondragleave="onDrag(event,false,'drop-gen')"
+           ondrop="onDrop(event,'gen')">
+        <input type="file" id="file-gen" onchange="onFileSelect('gen')">
+        <span class="drop-icon">🗂</span>
+        <div class="drop-label">Drop a file here, or <span>browse</span></div>
+        <div class="drop-hint">Any file type · No upload — processed locally in-browser</div>
+      </div>
+ 
+      <div class="file-info" id="info-gen">
+        <div class="file-icon-wrap">📄</div>
+        <div class="file-meta">
+          <div class="file-name" id="fname-gen">—</div>
+          <div class="file-size" id="fsize-gen">—</div>
+        </div>
+        <button class="file-remove" onclick="clearFile('gen')" title="Remove">✕</button>
+      </div>
+ 
+      <button class="btn" id="btn-gen" onclick="generateHash()" disabled>
+        <span>Generate SHA-256</span>
+      </button>
+ 
+      <div class="result" id="result-gen">
+        <div class="result-header">✔ &nbsp;Hash Generated</div>
+        <div class="result-body">
+          <div class="hash-label">SHA-256 Checksum</div>
+          <div class="hash-display" id="hash-out">
+            <button class="copy-btn" onclick="copyHash()">Copy</button>
+            <span id="hash-text">—</span>
+          </div>
+        </div>
+      </div>
+    </div>
+ 
+    <!-- ── Panel: Verify ────────────────────────────────────── -->
+    <div class="panel" id="panel-verify">
+ 
+      <div class="drop-zone" id="drop-ver"
+           ondragover="onDrag(event,true,'drop-ver')"
+           ondragleave="onDrag(event,false,'drop-ver')"
+           ondrop="onDrop(event,'ver')">
+        <input type="file" id="file-ver" onchange="onFileSelect('ver')">
+        <span class="drop-icon">🔍</span>
+        <div class="drop-label">Drop the file to verify, or <span>browse</span></div>
+        <div class="drop-hint">Processed entirely in your browser — nothing is uploaded</div>
+      </div>
+ 
+      <div class="file-info" id="info-ver">
+        <div class="file-icon-wrap">📄</div>
+        <div class="file-meta">
+          <div class="file-name" id="fname-ver">—</div>
+          <div class="file-size" id="fsize-ver">—</div>
+        </div>
+        <button class="file-remove" onclick="clearFile('ver')" title="Remove">✕</button>
+      </div>
+ 
+      <p class="paste-label">// Paste the expected hash below</p>
+      <textarea class="paste-input" id="expected-hash"
+        placeholder="a3f5c6d8e9f12b34c56d78e9f01a23b4c56d78e9f01a23b4c56d78e9f01a23b"></textarea>
+ 
+      <button class="btn" id="btn-ver" onclick="verifyHash()" disabled>
+        <span>Verify Integrity</span>
+      </button>
+ 
+      <div class="result" id="result-ver">
+        <div class="result-header" id="ver-header">—</div>
+        <div class="result-body">
+          <div class="compare-row">
+            <div class="compare-block">
+              <div class="hash-label">Current Hash</div>
+              <div class="hash-display" style="font-size:11px">
+                <span id="current-hash-text">—</span>
+              </div>
+            </div>
+            <div class="compare-block">
+              <div class="hash-label">Expected Hash</div>
+              <div class="hash-display" style="font-size:11px">
+                <span id="expected-hash-text">—</span>
+              </div>
+            </div>
+          </div>
+          <div id="ver-message" style="font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:4px;"></div>
+        </div>
+      </div>
+    </div>
+ 
+  </div><!-- /card -->
+ 
+  <!-- Version timeline -->
+  <div class="timeline">
+    <div class="timeline-title">Project Versions</div>
+    <div class="versions">
+      <div class="version-card done">
+        <div class="v-number">V1.0</div>
+        <div class="v-name">File Check</div>
+        <div class="v-desc">Ask for path, check if file exists</div>
+        <span class="v-tag done">✔ Done</span>
+      </div>
+      <div class="version-card done">
+        <div class="v-number">V2.0</div>
+        <div class="v-name">Hash Generator</div>
+        <div class="v-desc">SHA-256 hash + save to hashes.txt</div>
+        <span class="v-tag done">✔ Done</span>
+      </div>
+      <div class="version-card done">
+        <div class="v-number">V3.0</div>
+        <div class="v-name">Verify Mode</div>
+        <div class="v-desc">Compare hash, detect tampering</div>
+        <span class="v-tag done">✔ Done</span>
+      </div>
+      <div class="version-card active-v">
+        <div class="v-number">V4.0</div>
+        <div class="v-name">Full Menu CLI</div>
+        <div class="v-desc">Timestamps, list tracked files, exit</div>
+        <span class="v-tag current">★ Current</span>
+      </div>
+      <div class="version-card">
+        <div class="v-number">V5.0</div>
+        <div class="v-name">Swing GUI</div>
+        <div class="v-desc">Browse button, hash area, verify UI</div>
+        <span class="v-tag next">→ Next</span>
+      </div>
+    </div>
+  </div>
+ 
+</div><!-- /wrapper -->
+ 
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const files = { gen: null, ver: null };
+ 
+// ── Tab Switching ──────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+}
+ 
+// ── Drag & Drop ────────────────────────────────────────────────────────────
+function onDrag(e, over, id) {
+  e.preventDefault();
+  document.getElementById(id).classList.toggle('drag-over', over);
+}
+function onDrop(e, slot) {
+  e.preventDefault();
+  document.getElementById('drop-' + (slot === 'gen' ? 'gen' : 'ver')).classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) attachFile(slot, f);
+}
+ 
+// ── File Select ────────────────────────────────────────────────────────────
+function onFileSelect(slot) {
+  const input = document.getElementById('file-' + slot);
+  if (input.files[0]) attachFile(slot, input.files[0]);
+}
+function attachFile(slot, f) {
+  files[slot] = f;
+  document.getElementById('fname-' + slot).textContent = f.name;
+  document.getElementById('fsize-' + slot).textContent = formatBytes(f.size);
+  document.getElementById('info-' + slot).classList.add('visible');
+  document.getElementById('btn-' + slot === 'gen' ? 'btn-gen' : 'btn-ver').disabled = false;
+  // Re-enable correct button
+  document.getElementById(slot === 'gen' ? 'btn-gen' : 'btn-ver').disabled = false;
+  // Hide old result
+  document.getElementById('result-' + slot).classList.remove('visible', 'safe', 'warn', 'info');
+}
+function clearFile(slot) {
+  files[slot] = null;
+  document.getElementById('info-' + slot).classList.remove('visible');
+  document.getElementById(slot === 'gen' ? 'btn-gen' : 'btn-ver').disabled = true;
+  document.getElementById('result-' + slot).classList.remove('visible', 'safe', 'warn', 'info');
+  document.getElementById('file-' + slot).value = '';
+}
+ 
+// ── Generate ───────────────────────────────────────────────────────────────
+async function generateHash() {
+  if (!files.gen) return;
+  const btn = document.getElementById('btn-gen');
+  btn.innerHTML = '<span class="spinner"></span><span>Computing…</span>';
+  btn.disabled = true;
+ 
+  try {
+    const hash = await sha256(files.gen);
+    document.getElementById('hash-text').textContent = hash;
+    const r = document.getElementById('result-gen');
+    r.className = 'result visible info';
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+ 
+  btn.innerHTML = '<span>Generate SHA-256</span>';
+  btn.disabled = false;
+}
+ 
+// ── Verify ─────────────────────────────────────────────────────────────────
+async function verifyHash() {
+  if (!files.ver) return;
+  const expected = document.getElementById('expected-hash').value.trim().toLowerCase();
+  if (!expected) { alert('Please paste the expected hash to compare against.'); return; }
+ 
+  const btn = document.getElementById('btn-ver');
+  btn.innerHTML = '<span class="spinner"></span><span>Verifying…</span>';
+  btn.disabled = true;
+ 
+  try {
+    const current = await sha256(files.ver);
+    const match   = current === expected;
+ 
+    document.getElementById('current-hash-text').textContent  = current;
+    document.getElementById('expected-hash-text').textContent = expected;
+ 
+    const r      = document.getElementById('result-ver');
+    const header = document.getElementById('ver-header');
+    const msg    = document.getElementById('ver-message');
+ 
+    if (match) {
+      r.className   = 'result visible safe';
+      header.textContent = '✔  INTEGRITY VERIFIED — File is unchanged';
+      msg.style.color    = 'var(--safe)';
+      msg.textContent    = '// The hashes match. This file has not been modified.';
+    } else {
+      r.className   = 'result visible warn';
+      header.textContent = '⚠  WARNING — File has been MODIFIED!';
+      msg.style.color    = 'var(--warn)';
+      msg.textContent    = '// The hashes do not match. This file may have been tampered with or corrupted.';
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+  }
+ 
+  btn.innerHTML = '<span>Verify Integrity</span>';
+  btn.disabled = false;
+}
+ 
+// ── SHA-256 via Web Crypto API ─────────────────────────────────────────────
+async function sha256(file) {
+  const buffer = await file.arrayBuffer();
+  const hashBuf = await crypto.subtle.digest('SHA-256', buffer);
+  return Array.from(new Uint8Array(hashBuf))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+ 
+// ── Copy ───────────────────────────────────────────────────────────────────
+function copyHash() {
+  const text = document.getElementById('hash-text').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 1800);
+  });
+}
+ 
+// ── Util ───────────────────────────────────────────────────────────────────
+function formatBytes(n) {
+  if (n < 1024)       return n + ' B';
+  if (n < 1048576)    return (n/1024).toFixed(1)    + ' KB';
+  if (n < 1073741824) return (n/1048576).toFixed(2) + ' MB';
+  return (n/1073741824).toFixed(2) + ' GB';
+}
+</script>
+</body>
+</html>
